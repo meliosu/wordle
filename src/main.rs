@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::time::Duration;
 
@@ -30,6 +30,11 @@ fn main() -> std::io::Result<()> {
     let won = loop {
         render_wordle(&wordle)?;
 
+        if let Some(won) = wordle.won() {
+            std::thread::sleep(Duration::from_secs(1));
+            break won;
+        }
+
         match event::read()? {
             Event::Key(KeyEvent {
                 code: KeyCode::Esc, ..
@@ -58,18 +63,13 @@ fn main() -> std::io::Result<()> {
 
             _ => {}
         }
-
-        if let Some(won) = wordle.won() {
-            std::thread::sleep(Duration::from_secs(1));
-            break won;
-        }
     };
 
     terminal::disable_raw_mode()?;
     execute!(stdout, LeaveAlternateScreen, Show)?;
 
     if won {
-        println!("you have won!");
+        println!("🦀🦀🦀 You have won!!! 🦀🦀🦀");
     } else {
         println!("The answer was {}.", wordle.answer.to_ascii_uppercase());
         println!("Maybe try again later...");
@@ -106,21 +106,48 @@ fn render_wordle(wordle: &Wordle) -> std::io::Result<()> {
 
     // print previous guesses
     for (y, guess) in (y + 1..).step_by(2).zip(&wordle.guesses) {
-        for (idx, (x, c)) in (x + 2..).step_by(4).zip(guess.chars()).enumerate() {
-            let color = if guess[idx..idx + 1] == wordle.answer[idx..idx + 1] {
-                Color::Green
-            } else if wordle.answer.contains(c) {
-                Color::Yellow
-            } else {
-                Color::Grey
-            };
+        let mut colors = [Color::DarkGrey; 5];
+        let mut answer_chars: Vec<char> = wordle.answer.chars().collect();
 
-            let style = ContentStyle::new().with(color);
+        let guess_chars: Vec<char> = guess.chars().collect();
+
+        for idx in 0..5 {
+            if Some(guess_chars[idx]) == wordle.answer.chars().nth(idx) {
+                colors[idx] = Color::Green;
+
+                answer_chars.remove(
+                    answer_chars
+                        .iter()
+                        .position(|&ch| ch == guess_chars[idx])
+                        .unwrap(),
+                );
+            }
+        }
+
+        for (idx, c) in guess.chars().enumerate() {
+            if colors[idx] == Color::Green {
+                continue;
+            }
+
+            if let Some(pos) = answer_chars.iter().position(|&ch| ch == c) {
+                colors[idx] = Color::Yellow;
+                answer_chars.remove(pos);
+            }
+        }
+
+        for (idx, c) in guess.chars().enumerate() {
+            let x = 4 * idx as u16 + x + 2;
 
             queue!(
                 stdout,
                 MoveTo(x, y),
-                PrintStyledContent(StyledContent::new(style, c.to_ascii_uppercase()))
+                PrintStyledContent(StyledContent::new(
+                    ContentStyle {
+                        foreground_color: Some(colors[idx]),
+                        ..Default::default()
+                    },
+                    c.to_ascii_uppercase().bold(),
+                ))
             )?;
         }
     }
